@@ -1,3 +1,4 @@
+import { speciesNameHTML, formatCount } from './display.js';
 export const BUCKETS = 256;
 export const SPECIES_RESULT_LIMIT = 10;
 
@@ -133,12 +134,12 @@ export async function searchAll(query, { fetchJSON, root }) {
   };
 }
 
-export function init({ document, fetch, root, navigate, setTimer, clearTimer }) {
-  const input = document.getElementById('site-search');
+export function init({ document, fetch, root, navigate, setTimer, clearTimer, id = 'site-search' }) {
+  const input = document.getElementById(id);
   if (!input) return;
-  const results = document.getElementById('site-search-results');
-  const status = document.getElementById('site-search-status');
-  const form = document.querySelector('[data-site-search]');
+  const results = document.getElementById(`${id}-results`);
+  const status = document.getElementById(`${id}-status`);
+  const form = document.querySelector(`[data-search-id="${id}"]`) ?? document.querySelector('[data-site-search]');
   const files = new Map();
   const fetchJSON = async url => {
     if (!files.has(url)) {
@@ -172,7 +173,8 @@ export function init({ document, fetch, root, navigate, setTimer, clearTimer }) 
   function span(text, className) {
     const el = document.createElement('span');
     el.className = className;
-    el.textContent = text;
+    if (className === 'search-species' || className === 'search-synonym') el.innerHTML = speciesNameHTML(text);
+    else el.textContent = text;
     return el;
   }
   async function search(query, ticket) {
@@ -184,7 +186,7 @@ export function init({ document, fetch, root, navigate, setTimer, clearTimer }) 
       for (const entry of [...found.species, ...found.genes]) {
         const option = document.createElement('a');
         option.setAttribute('role', 'option');
-        option.setAttribute('id', `site-search-opt-${options.length}`);
+        option.setAttribute('id', `${id}-opt-${options.length}`);
         option.setAttribute('href', entry.href);
         option.setAttribute('aria-selected', 'false');
         if ('atlas_id' in entry) {
@@ -201,7 +203,7 @@ export function init({ document, fetch, root, navigate, setTimer, clearTimer }) 
       activate(-1);
       results.hidden = options.length === 0;
       input.setAttribute('aria-expanded', String(!results.hidden));
-      status.textContent = options.length ? `${found.speciesTotal} species and ${found.genes.length} genes match`
+      status.textContent = options.length ? `${formatCount(found.speciesTotal)} species and ${formatCount(found.genes.length)} receptors match`
         : `No species or genes match ${query}`;
     } catch (error) {
       if (ticket !== generation) return;
@@ -239,6 +241,6 @@ export function init({ document, fetch, root, navigate, setTimer, clearTimer }) 
 }
 
 if (typeof document !== 'undefined' && typeof location !== 'undefined') {
-  init({ document, fetch: url => fetch(url), root: new URL('./', import.meta.url),
+  for (const form of document.querySelectorAll('[data-site-search]')) init({ id: form.dataset.searchId, document, fetch: url => fetch(url), root: new URL('./', import.meta.url),
     navigate: href => location.assign(href), setTimer: (callback, ms) => setTimeout(callback, ms), clearTimer: id => clearTimeout(id) });
 }

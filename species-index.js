@@ -1,7 +1,9 @@
-// Species index: one filter row drives the cards, the table and the matrix; the view and filters live in the URL.
-// Without this script every view renders in full and the filter row stays hidden.
+import { formatCount } from './display.js';
+// Species index: one filter row drives all four views; the view and filters live in the URL.
+// Without this script cards, table and matrix render in full and the filter row stays hidden.
 export const NO_ORDER = '-';
-export const VIEWS = ['cards', 'table', 'matrix'];
+export const VIEWS = ['cards', 'table', 'tree', 'matrix'];
+export const DEFAULT_VIEW = 'table';
 const SELECTS = { class: 'sf-class', order: 'sf-order', clade: 'sf-clade', source: 'sf-source', ligand: 'sf-ligand' };
 const NUMBERS = { busco_min: 'sf-busco-min', busco_max: 'sf-busco-max', min: 'sf-min' };
 
@@ -53,8 +55,8 @@ export function active(f) {
 }
 
 export function countText(shown, total) {
-  return shown === total ? `Showing all ${total.toLocaleString('en-US')} species`
-    : `Showing ${shown.toLocaleString('en-US')} of ${total.toLocaleString('en-US')} species`;
+  return shown === total ? `Showing all ${formatCount(total)} species`
+    : `Showing ${formatCount(shown)} of ${formatCount(total)} species`;
 }
 
 // Card order as indices into the server order, which is by name.
@@ -69,7 +71,7 @@ export function cardOrder(items, key) {
 export function queryString(values, view) {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(values)) if (String(value).trim() !== '') params.set(key, String(value).trim());
-  if (view !== 'cards') params.set('view', view);
+  if (view !== DEFAULT_VIEW) params.set('view', view);
   return params.toString();
 }
 
@@ -82,8 +84,16 @@ export function init(doc, win) {
   const items = cards.map(card => readItem(card.dataset));
   const tableWrapper = byId('species-table');
   const tableRows = new Map([...tableWrapper.querySelectorAll('tbody tr[data-sample]')].map(row => [row.dataset.sample, row]));
+  // Cards hold the shared filter data once in the HTML; table rows reuse it after enhancement.
+  for (const card of cards) {
+    const row = tableRows.get(card.dataset.sample);
+    for (const [key, value] of Object.entries(card.dataset)) row.dataset[key] = value;
+  }
   const matrix = doc.querySelector('table.heatmap');
   const matrixRows = new Map([...(matrix ? matrix.querySelectorAll('tr[data-sample]') : [])].map(row => [row.dataset.sample, row]));
+  const treePanel = byId('species-tree-view');
+  const treeControls = doc.querySelector('[data-tree-controls]');
+  let treeRows = new Map(), treeClades = [], treeRequest;
   const count = doc.querySelector('[data-species-count]');
   const note = doc.querySelector('[data-matrix-note]');
   const viewButtons = [...doc.querySelectorAll('[data-species-view]')];
@@ -100,7 +110,7 @@ export function init(doc, win) {
     element.animate(frames, { duration: duration('--dur-med'),
       easing: win.getComputedStyle(doc.documentElement).getPropertyValue('--ease-out').trim() || 'ease-out' });
   };
-  let view = 'cards';
+  let view = DEFAULT_VIEW;
 
   const fieldValues = () => {
     const values = { q: byId('sf-name').value };
@@ -139,13 +149,38 @@ export function init(doc, win) {
       cards[index].toggleAttribute('data-excluded', !keep);
       tableRows.get(item.sample)?.toggleAttribute('data-excluded', !keep);
       matrixRows.get(item.sample)?.toggleAttribute('data-excluded', !keep);
+      treeRows.get(item.sample)?.toggleAttribute('data-excluded', !keep);
     });
     markMatrixGroups();
+    for (const clade of treeClades) clade.hidden = !clade.querySelector('[data-tree-leaf]:not([data-excluded])');
     tableWrapper.dispatchEvent(new win.Event('atlas:refilter'));
     count.textContent = countText(shown, items.length);
     note.hidden = !active(filters);
     if (animated && view === 'cards') animate(list, [{ opacity: 0.35 }, { opacity: 1 }]);
     writeURL();
+  };
+  const ensureTree = () => {
+    if (treeRequest) return treeRequest;
+    const url = treePanel.dataset.treeUrl;
+    treePanel.dataset.treeState = 'loading';
+    treeRequest = (async () => {
+      const response = await win.fetch(url);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      if (typeof data?.html !== 'string') throw new Error('Expected tree HTML');
+      const container = treePanel.querySelector('.species-tree');
+      container.innerHTML = data.html;
+      treeRows = new Map([...container.querySelectorAll('[data-tree-leaf]')].map(leaf => [leaf.dataset.sample, leaf]));
+      treeClades = [...container.querySelectorAll('details')];
+      apply({ animated: false });
+      treePanel.dataset.treeState = 'ready';
+      treeControls.hidden = false;
+    })().catch(error => {
+      treePanel.dataset.treeState = 'error';
+      treePanel.querySelector('[data-tree-error]').hidden = false;
+      console.error(`Could not load species tree ${url}: ${error.message}`);
+    });
+    return treeRequest;
   };
   const setView = (next, { animated = true } = {}) => {
     if (!VIEWS.includes(next)) throw new Error(`Unknown species view: ${JSON.stringify(next)}`);
@@ -155,6 +190,7 @@ export function init(doc, win) {
     sortField.hidden = next !== 'cards';
     if (animated) animate(panels.find(panel => !panel.hidden), [{ opacity: 0, transform: 'translateY(4px)' }, { opacity: 1, transform: 'translateY(0)' }]);
     writeURL();
+    if (next === 'tree') void ensureTree();
   };
   const sortCards = () => {
     const order = cardOrder(items, sort.value);
@@ -171,7 +207,7 @@ export function init(doc, win) {
     else console.error(`Ignored unknown ${key} in the link: ${JSON.stringify(value)}`);
   }
   for (const [key, id] of Object.entries(NUMBERS)) byId(id).value = params.get(key) ?? '';
-  const requested = params.get('view') ?? 'cards';
+  const requested = params.get('view') ?? DEFAULT_VIEW;
   if (!VIEWS.includes(requested)) console.error(`Ignored unknown view in the link: ${JSON.stringify(requested)}`);
 
   form.addEventListener('submit', event => event.preventDefault());
@@ -179,9 +215,14 @@ export function init(doc, win) {
   form.addEventListener('reset', () => win.setTimeout(() => apply(), 0));
   for (const button of viewButtons) button.addEventListener('click', () => setView(button.dataset.speciesView));
   sort.addEventListener('change', sortCards);
+  for (const button of doc.querySelectorAll('[data-tree-action]')) {
+    button.addEventListener('click', () => {
+      for (const clade of treeClades) clade.open = button.dataset.treeAction === 'expand';
+    });
+  }
   form.hidden = false;
   doc.querySelector('[data-species-views]').hidden = false;
-  setView(VIEWS.includes(requested) ? requested : 'cards', { animated: false });
+  setView(VIEWS.includes(requested) ? requested : DEFAULT_VIEW, { animated: false });
   apply({ animated: false });
 }
 

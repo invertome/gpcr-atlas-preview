@@ -1,3 +1,4 @@
+import { formatCount } from './display.js';
 const json = value => JSON.stringify(value);
 const numericCell = /^-?\d+(\.\d+)?$/;
 const collator = new Intl.Collator('en', { sensitivity: 'base', numeric: true });
@@ -41,8 +42,8 @@ export function filterIndices(texts, query) {
 
 export function countText(shown, total) {
   const noun = total === 1 ? 'row' : 'rows';
-  return shown === total ? `Showing all ${total.toLocaleString('en-US')} ${noun}`
-    : `Showing ${shown.toLocaleString('en-US')} of ${total.toLocaleString('en-US')} ${noun}`;
+  return shown === total ? `Showing all ${formatCount(total)} ${noun}`
+    : `Showing ${formatCount(shown)} of ${formatCount(total)} ${noun}`;
 }
 
 export function toTSV(header, rows) {
@@ -148,13 +149,13 @@ export function createCart(storage) {
 }
 
 export function readTheme(storage) {
-  if (storage === null) return 'dark';
+  if (storage === null) return 'light';
   let theme;
   try { theme = storage.getItem('atlas-theme'); }
-  catch { return 'dark'; }
+  catch { return 'light'; }
   if (theme === 'light' || theme === 'dark') return theme;
   if (theme !== null) console.error(`Ignored invalid stored theme: ${json(theme)}`);
-  return 'dark';
+  return 'light';
 }
 
 export function writeTheme(storage, theme) {
@@ -288,6 +289,12 @@ export function init(doc, env) {
       applyFilters();
     });
     on(wrapper, 'atlas:refilter', 'table filter', applyFilters);
+    if (wrapper.id === 'species-downloads') {
+      on(one('[data-download-clade]'), 'change', 'download clade filter', event => {
+        rows.forEach(row => row.toggleAttribute('data-excluded', event.target.value !== '' && row.dataset.downloadGroup !== event.target.value));
+        applyFilters();
+      });
+    }
     const copy = one('[data-table-copy]', wrapper);
     let copyTimer;
     on(copy, 'click', 'table copy', () => {
@@ -386,19 +393,19 @@ export function init(doc, env) {
     const render = (removedLabel = null) => {
       const totals = cart.totals();
       for (const count of all('.cart-count[data-cart-count]')) {
-        count.textContent = totals.items.toLocaleString('en-US');
+        count.textContent = formatCount(totals.items);
         if (totals.items > previousCount) animate(count, [{ transform: 'scale(1)' }, { transform: 'scale(1.18)' }, { transform: 'scale(1)' }], '--dur-med');
       }
       previousCount = totals.items;
-      one('[data-cart-summary]', drawer).textContent = totals.items === 0 ? 'The cart is empty.'
-        : `${totals.items.toLocaleString('en-US')} ${totals.items === 1 ? 'item' : 'items'}, ${totals.sequences.toLocaleString('en-US')} ${totals.sequences === 1 ? 'sequence' : 'sequences'}.`;
+      one('[data-cart-summary]', drawer).textContent = totals.items === 0 ? 'The download list is empty.'
+        : `${formatCount(totals.items)} ${totals.items === 1 ? 'item' : 'items'}, ${formatCount(totals.sequences)} ${totals.sequences === 1 ? 'receptor' : 'receptors'}.`;
       one('[data-cart-storage-note]', drawer).hidden = cart.persistent;
       list.replaceChildren();
       for (const item of cart.items()) {
         const row = create('li');
         row.setAttribute('data-cart-item', item.id);
         row.append(create('span', item.label, 'cart-item-label'));
-        row.append(create('span', `${item.count.toLocaleString('en-US')} ${item.count === 1 ? 'sequence' : 'sequences'}`, 'number'));
+        row.append(create('span', `${formatCount(item.count)} ${item.count === 1 ? 'receptor' : 'receptors'}`, 'number'));
         for (const file of item.files) {
           const link = create('a', file.label);
           link.setAttribute('href', file.href);
@@ -420,7 +427,7 @@ export function init(doc, env) {
       undoButton.title = undoButton.textContent;
       for (const button of additions) {
         const present = cart.has(button.dataset.cartId);
-        button.textContent = present ? 'In the cart' : originalLabels.get(button);
+        button.textContent = present ? 'In the download list' : originalLabels.get(button);
         if (present) button.setAttribute('aria-disabled', 'true');
         else button.removeAttribute('aria-disabled');
       }
