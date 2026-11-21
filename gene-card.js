@@ -1,4 +1,4 @@
-import { escapeHTML, formatSequence, formatCount, evidenceValue, speciesNameHTML, ligandTypeLabel, receptorFamilyLabel, evidenceReceptorLabel, finalCallTier, tierLabel, stateHelp, stateName, columnLabel, ABSTENTIONS, FINAL_CALL, DISTANCE } from './display.js';
+import { fastaHeader, CANDIDATE_LABEL, CANDIDATE_YES, CANDIDATE_NO, escapeHTML, formatSequence, formatCount, evidenceValue, speciesNameHTML, ligandTypeLabel, receptorFamilyLabel, evidenceReceptorLabel, finalCallTier, tierLabel, stateHelp, stateName, columnLabel, ABSTENTIONS, FINAL_CALL, DISTANCE } from './display.js';
 export { escapeHTML } from './display.js';
 export { CARD_GROUPS } from './display.js';
 import { CARD_GROUPS } from './display.js';
@@ -241,13 +241,15 @@ export async function run({ search, fetch, document }) {
     }
     if (!CALL_STATES.includes(data.call_state[index])) return invalid('Unknown distance from characterized receptors');
     const row = Object.fromEntries(columns.map(column => [column, data[column][index]]));
+    if (row.subtype_above !== 0 && row.subtype_above !== 1) return invalid('Invalid candidate chemoreceptor flag');
     let tier;
     try { tier = finalCallTier(row.family_call, row.subtype_call, embedded.ligand_type_keys); }
     catch (error) { return invalid(error.message); }
     const ligand = ABSTENTIONS.includes(row.family_call)
       ? `${tierLabel('none')} (${ligandTypeLabel(row.family_call)})` : ligandTypeLabel(row.family_call);
     const summary = [['Ligand type', ligand], ['Receptor family', receptorFamilyLabel(row.family_call, row.subtype_call, embedded.ligand_type_keys)],
-      [FINAL_CALL, tierLabel(tier)], [DISTANCE, stateName(row.call_state)]];
+      [FINAL_CALL, tierLabel(tier)], [DISTANCE, stateName(row.call_state)],
+      [CANDIDATE_LABEL, row.subtype_above === 1 ? CANDIDATE_YES : CANDIDATE_NO]];
     const checklist = [
       ['pass_pf00001', ['pf00001_E_Z43318']], ['pass_ps50262', ['ps50262_nscore']],
       ['pass_cdd', ['cdd_top7tm', 'cdd_top7tm_E']], ['pass_tm', ['n_tm']], ['pass_sr', ['sr_ga_families']],
@@ -274,7 +276,7 @@ export async function run({ search, fetch, document }) {
     if (sequence.reason) append(`<section><h2>Sequence</h2><p>Sequence not available: ${escapeHTML(sequence.reason)}</p></section>`);
     else {
       const wrapped = sequence.text.match(/.{1,60}/g).join('\n');
-      const fasta = `>${id}\n${wrapped}\n`;
+      const fasta = `>${fastaHeader(row, embedded.ligand_type_keys)}\n${wrapped}\n`;
       append(`<section><h2>Sequence</h2><pre class="sequence sequence-desktop">${escapeHTML(formatSequence(sequence.text, 60))}</pre><pre class="sequence sequence-mobile">${escapeHTML(formatSequence(sequence.text, 30))}</pre><button type="button" data-copy-sequence>Copy</button> <a download="${escapeHTML(row.original_id)}.fasta" href="data:text/plain;charset=utf-8,${encodeURIComponent(fasta)}">Download FASTA</a><p data-sequence-status role="status"></p></section>`);
       const copy = container.querySelector?.('[data-copy-sequence]');
       copy?.addEventListener('click', async () => {

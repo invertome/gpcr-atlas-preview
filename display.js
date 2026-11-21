@@ -21,14 +21,14 @@ const STATES = {
   subtype_unresolved: ['Ligand type known, receptor family unresolved', '--color-state-unresolved',
     'Assigned to a ligand type. The nearest receptor family is a catch-all group, so no receptor family is named.'],
   novel_family: ['Beyond all known ligand types', '--color-state-novel-family',
-    'Past the novelty threshold of every known ligand type.'],
+    'Past the ligand type novelty threshold of every known ligand type.'],
   subtype_blocked: ['Ligand type known, receptor family call unreliable', '--color-state-blocked',
     'Assigned to a ligand type. No receptor family is called, because in tests on characterized receptors left out of the reference set, most receptors assigned to the nearest receptor family belonged to other receptor families.'],
 };
 
 const ABSTENTION_NAMES = {
   'community-orphan': ['Orphan community',
-    'The receptor clusters with other atlas receptors in an embedding community that holds too few characterized receptors, so no ligand type is assigned.'],
+    'The receptor sits in an embedding community with too few characterized receptors and received no ligand type. The label describes the community. Distance from characterized receptors is measured separately.'],
   unassigned: ['Unassigned', 'No ligand type passed the agreement rules for this receptor.'],
 };
 
@@ -185,7 +185,7 @@ export const EMPTY_REPERTOIRE = 'No class-A GPCRs were called in this species.';
 export const FINAL_CALL = 'Final call';
 export const DISTANCE = 'Distance from characterized receptors';
 export const FINAL_AXIS = 'Each receptor ends with a named receptor family, a ligand type only, or no ligand type, as set by the agreement rules.';
-export const DISTANCE_AXIS = 'Where each receptor sits relative to the novelty threshold of the nearest characterized receptor family and ligand type.';
+export const DISTANCE_AXIS = 'Where each receptor sits relative to the novelty threshold of the nearest characterized receptor family and the ligand type novelty threshold of the nearest ligand type.';
 export const OTHER_LIGANDS = 'Other ligand types';
 export const TIER_TOKENS = Object.freeze({ named: '--color-state-known', ligand_only: '--color-state-unresolved', none: '--color-state-novel-family' });
 
@@ -348,3 +348,34 @@ export const CARD_GROUPS = [
     'n_subsamples_containing', 'family_stability', 'subtype_stability',
   ] },
 ];
+
+export function numberWord(n) {
+  countNumber(n);
+  return n < 10 ? ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'][n] : formatCount(n);
+}
+export const CANDIDATE_LABEL = 'Candidate chemoreceptor';
+export const CANDIDATE_YES = 'Yes (beyond the novelty threshold)';
+export const CANDIDATE_NO = 'No (within the novelty threshold)';
+export const DISTANCE_STATE_KEYS = Object.freeze({
+  known: 'known', novel_subtype: 'new_receptor_family', subtype_unresolved: 'receptor_family_unresolved',
+  novel_family: 'beyond_known_ligand_types', subtype_blocked: 'receptor_family_unreliable',
+});
+export function fastaHeader(row, ligandTypeKeys) {
+  const token = (value, field) => {
+    if (typeof value !== 'string' || !value || /\s/u.test(value)) throw new Error(`Invalid FASTA ${field}: ${String(value)}`);
+    return value;
+  };
+  const id = token(row.atlas_id, 'atlas_id');
+  const ligand = token(row.family_call, 'ligand_type'), receptor = token(row.subtype_call, 'receptor family');
+  const tier = finalCallTier(ligand, receptor, ligandTypeKeys);
+  if (!ligandTypeKeys.includes(ligand)) throw new Error(`Unknown FASTA ligand type: ${ligand}`);
+  const state = token(row.call_state, 'distance_state');
+  if (!Object.hasOwn(DISTANCE_STATE_KEYS, state)) throw new Error(`Unknown FASTA call_state: ${state}`);
+  const pairs = [['ligand_type', ligand]];
+  if (tier === 'named') pairs.push(['receptor_family', receptor]);
+  pairs.push(['final_call', tier], ['distance_state', DISTANCE_STATE_KEYS[state]]);
+  for (const [source, key] of [['agreement_level', 'ligand_type_confidence'], ['subtype_agreement_level', 'receptor_family_confidence']]) {
+    if (row[source] !== null) pairs.push([key, token(row[source], key)]);
+  }
+  return [id, ...pairs.map(([key, value]) => `${key}=${value}`)].join(' ');
+}

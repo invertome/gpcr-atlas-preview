@@ -148,14 +148,15 @@ export function createCart(storage) {
   };
 }
 
-export function readTheme(storage) {
-  if (storage === null) return 'light';
+export function readTheme(storage, matchMedia = globalThis.matchMedia?.bind(globalThis)) {
+  const preferred = () => matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  if (storage === null) return preferred();
   let theme;
   try { theme = storage.getItem('atlas-theme'); }
-  catch { return 'light'; }
+  catch { return preferred(); }
   if (theme === 'light' || theme === 'dark') return theme;
   if (theme !== null) console.error(`Ignored invalid stored theme: ${json(theme)}`);
-  return 'light';
+  return preferred();
 }
 
 export function writeTheme(storage, theme) {
@@ -209,14 +210,19 @@ export function init(doc, env) {
   };
 
   safe('theme', () => {
-    const theme = readTheme(env.storage);
+    const theme = readTheme(env.storage, win.matchMedia.bind(win));
     const button = one('[data-theme-toggle]');
     doc.documentElement.dataset.theme = theme;
-    button.setAttribute('aria-pressed', String(theme === 'light'));
+    const sync = theme => {
+      const target = theme === 'dark' ? 'light' : 'dark';
+      button.textContent = button.dataset[`${target}Label`];
+      button.setAttribute('aria-label', button.dataset[`${target}Aria`]);
+    };
+    sync(theme);
     on(button, 'click', 'theme', () => {
       const next = doc.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
       doc.documentElement.dataset.theme = next;
-      button.setAttribute('aria-pressed', String(next === 'light'));
+      sync(next);
       writeTheme(env.storage, next);
     });
   })();
